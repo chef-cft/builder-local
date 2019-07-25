@@ -1,0 +1,362 @@
+#!/bin/bash
+RED='\033[0;31m'
+NO_COLOR='\033[0m'
+set -uo pipefail
+
+export APP_HOSTNAME
+export OAUTH_PROVIDER
+export OAUTH_USERINFO_URL
+export OAUTH_AUTHORIZE_URL
+export OAUTH_TOKEN_URL
+export OAUTH_CLIENT_ID
+export OAUTH_CLIENT_SECRET
+export OAUTH_REDIRECT_URL
+export GITHUB_API_URL
+export GITHUB_APP_ID
+export GITHUB_APP_URL
+export SSL_CERT_FILE
+export DEV_MODE
+export HAB_STATS_ADDR
+
+# Wrap a function with this one to ensure that it stops executing if any of its
+# commands return nonzero. If so, a highly-visible message is printed which
+# should make the error condition more apparent.
+stop-on-failure() {
+  (set -e; "$@");
+  rv=$?
+  if [ $rv -ne 0 ]; then
+    echo -e "${RED}ERROR: $* aborted due to error${NO_COLOR}"
+    return 1
+  fi
+}
+
+no_install_deps() {
+  local file="/src/components/${1}/cleanup"
+  if [ ! -f "$file" ]; then
+    touch "$file"
+  else
+    echo "1"
+  fi
+}
+
+_init-datastore() {
+  mkdir -p /hab/svc/builder-datastore
+  cp -f /src/support/builder/datastore.toml /hab/svc/builder-datastore/user.toml
+}
+init-datastore() { stop-on-failure _init-datastore; }
+
+load_env_config() {
+  local env_config
+  env_config="/src/.secrets/habitat-env"
+
+  if [[ -f "${env_config}" ]]; then
+    source "${env_config}"
+  else
+    echo -e "${RED}.secrets/habitat-env is required. Please see DEVELOPING.md for getting started instructions.${NO_COLOR}"
+    exit 1
+  fi
+}
+
+configure() {
+  load_env_config
+  /src/support/builder/config.sh
+}
+
+install-packages() {
+  hab pkg install \
+  core/cacerts \
+  core/net-tools \
+  core/procps-ng \
+  core/shadow \
+  core/curl \
+  core/aws-cli \
+  -b -c stable
+
+  # workaround for https://github.com/habitat-sh/habitat/issues/6418
+  hab pkg binlink core/cacerts
+  hab pkg binlink core/net-tools
+  hab pkg binlink core/procps-ng
+  hab pkg binlink core/shadow
+  hab pkg binlink core/curl
+  hab pkg binlink core/aws-cli
+}
+
+_build-builder-component() {
+  local component="$1"
+
+  stop-builder "$component"
+
+  NO_INSTALL_DEPS=$(no_install_deps "builder-$component") \
+    build "/src/components/builder-$component/habitat-dev"
+  echo "builder-$component build succeeded"
+
+  start-builder "$component"
+}
+build-builder-component() { stop-on-failure _build-builder-component "$@"; }
+
+alias bb=build-builder
+_build-builder() {
+  if ! hab sup status > /dev/null 2>&1; then
+    echo "Starting supervisor"
+    sup-run
+    sleep 5
+  fi
+
+  if [[ $(hab sup status) == "No services loaded." ]]; then
+    start-builder
+  fi
+
+  if [[ "$#" -eq 0 ]]; then
+    build-builder api jobsrv worker
+    return $?
+  fi
+
+  for component in "$@"; do
+    build-builder-component "$component"
+  done
+}
+build-builder() { stop-on-failure _build-builder "$@"; }
+
+upload_github_keys() {
+  if [[ -f "/src/.secrets/builder-github-app.pem" ]]; then
+    for svc in worker api; do
+      hab file upload "builder-${svc}.default" "$(date +%s)" "/src/.secrets/builder-github-app.pem"
+    done
+  else
+    echo "Missing GitHub key file. Please follow instructions here: https://github.com/habitat-sh/builder/blob/master/DEVELOPING.md"
+    sleep 10
+  fi
+}
+
+command-exists() {
+  command -V "$1" > /dev/null 2>&1
+}
+
+_start-builder() {
+  if [[ "$#" -eq 0 ]]; then
+    start-builder datastore
+    configure
+    start-builder cache
+    start-builder memcached
+    start-builder api
+    start-builder api-proxy
+    start-builder jobsrv
+    start-builder worker
+    start-builder minio
+    configure-minio
+    sleep 2
+    generate_bldr_keys
+    upload_github_keys
+
+    echo "Builder Started: Navigate to http://localhost/#/pkgs/core to access the web UI."
+    echo "Minio login available at http://localhost:9000"
+    echo "Username: depot"
+    echo "Password: password"
+    echo "AWS-CLI ENVVARS have been set with these values"
+    return $?
+  fi
+
+  for component in "$@"; do
+    if [ -v "svc_params[$component]" ]; then
+      # shellcheck disable=SC2086
+      load-if-not-loaded habitat/builder-$component ${svc_params[$component]}
+    elif command-exists "start-$component"; then
+      "start-$component"
+    else
+      echo -e "${RED}ERROR: Unknown builder service: $component${NO_COLOR}"
+      return 1
+    fi
+  done
+}
+start-builder() { stop-on-failure _start-builder "$@"; }
+
+_load-if-not-loaded() {
+  local pkg_ident
+  pkg_ident=$1
+  if hab sup status "$pkg_ident" > /dev/null 2>&1; then
+    echo "$pkg_ident is already loaded"
+  else
+    hab svc load "$@"
+  fi
+}
+load-if-not-loaded() { stop-on-failure _load-if-not-loaded "$@"; }
+
+start-datastore() {
+  echo "Starting datastore"
+  if hab sup status habitat/builder-datastore > /dev/null 2>&1; then
+    echo "habitat/builder-datastore is already loaded"
+  else
+    init-datastore
+    hab svc load habitat/builder-datastore
+  fi
+}
+
+configure-minio() {
+   export AWS_ACCESS_KEY_ID="depot"
+   export AWS_SECRET_ACCESS_KEY="password"
+   if aws --endpoint-url http://localhost:9000 s3api list-buckets | grep "habitat-builder-artifact-store.default" > /dev/null; then
+     echo "Minio already configured"
+   else
+     echo "Creating bucket in Minio"
+     aws --endpoint-url http://localhost:9000 s3api create-bucket --bucket "habitat-builder-artifact-store.default"
+   fi
+}
+
+start-cache() {
+  load-if-not-loaded core/sccache
+}
+
+declare -A svc_params=(
+  [api]="        -s at-once --bind memcached:builder-memcached.default --bind jobsrv:builder-jobsrv.default"
+  [api-proxy]="             --bind http:builder-api.default"
+  [jobsrv]="     -s at-once"
+  [worker]="     -s at-once --bind jobsrv:builder-jobsrv.default --bind depot:builder-api-proxy.default"
+  [minio]="      -s at-once"
+  [memcached]="  -s at-once"
+)
+
+_stop-builder() {
+  if [[ "$#" -eq 0 ]]; then
+    stop-builder cache api api-proxy datastore jobsrv worker minio memcached
+    return $?
+  fi
+
+  for component in "$@"; do
+    if [ $component == cache ]; then
+      hab svc unload core/sccache
+    else
+      echo "Unloading builder-$component"
+      hab svc unload habitat/builder-$component
+    fi
+  done
+}
+stop-builder() { stop-on-failure _stop-builder "$@"; }
+
+generate_bldr_keys() {
+  mapfile -t keys < <(find /hab/cache/keys -name "bldr-*.pub")
+
+  if [ "${#keys[@]}" -gt 0 ]; then
+    KEY_NAME=$(echo "${keys[0]}" | grep -Po "bldr-\\d+")
+    echo "Re-using existing builder key: $KEY_NAME"
+  else
+    KEY_NAME=$(hab user key generate bldr | grep -Po "bldr-\\d+")
+    echo "Generated new builder key: $KEY_NAME"
+  fi
+
+  for svc in api jobsrv worker; do
+    hab file upload "builder-${svc}.default" "$(date +%s)" "/hab/cache/keys/${KEY_NAME}.pub"
+    hab file upload "builder-${svc}.default" "$(date +%s)" "/hab/cache/keys/${KEY_NAME}.box.key"
+  done
+}
+
+load_package() {
+  hab pkg upload --url http://localhost --auth "${HAB_AUTH_TOKEN}" "$@" --channel stable
+}
+
+load_packages() {
+  if [[ -d /src/pkgs ]]; then
+    for pkg in /src/pkgs/core*.hart ; do
+      load_package "${pkg}"
+    done
+  fi
+}
+
+origin() {
+  local origin=${1:-core}
+  if curl --fail localhost/v1/depot/origins \
+    -d "{\"name\":\"${origin}\"}" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${HAB_AUTH_TOKEN}";
+  then
+    hab origin key generate "${origin}"
+    hab origin key upload --url http://localhost -z "${HAB_AUTH_TOKEN}" -s "${origin}"
+  else
+    echo "Failed to create origin ${origin}"
+  fi
+}
+
+test-builder() {
+    if hab sup status > /dev/null 2>&1; then
+      echo "Stopping supervisor"
+        hab sup term
+        sleep 8
+    fi
+
+    echo "Starting supervisor in test mode"
+    HAB_FUNC_TEST=1 sup-run
+    sleep 10
+
+    /src/test/builder-api/test.sh
+    echo "Returning supervisor to default mode"
+    hab sup term > /dev/null 2>&1
+    sup-run
+}
+
+function psql() {
+  local config_dir port
+  config_dir="/hab/svc/builder-datastore/config"
+  port=$(grep port $config_dir/postgresql.conf | grep -oE '[[:digit:]]+')
+  PGPASSWORD=$(cat $config_dir/pwfile) hab pkg exec core/postgresql psql -U hab -h 127.0.0.1 -p "$port" "$@"
+}
+
+export -f psql
+
+# Cleanup any development touch files we laid down when checking to see if we could run NO_INSTALL_DEPS
+local_cleanup() {
+  for svc in api api-proxy datastore jobsrv worker minio; do
+    if [ -f "/src/components/builder-${svc}/cleanup" ]; then
+      rm "/src/components/builder-${svc}/cleanup"
+    fi
+  done
+}
+
+alias help=dev_docs
+
+welcome() {
+  cat <<'WMSG'
+Welcome to...
+ ____        _ _     _
+| __ ) _   _(_) | __| | ___ _ __
+|  _ \| | | | | |/ _  |/ _ \  __|
+| |_) | |_| | | | (_| |  __/ |
+|____/ \__,_|_|_|\__,_|\___|_|
+
+Type 'help' for commands
+
+WMSG
+}
+
+dev_docs() {
+  cat <<DOCS
+The following commands are available:
+  build-builder (alias: bb) - Build all services
+  build-builder [SERVICE]   - Build specific service
+                              Valid: api jobsrv worker
+                              Experimental: api-proxy
+  start-builder             - Start all services
+  start-builder [SERVICE]   - Start specific service
+                              Valid: api api-proxy cache datastore
+                                     jobsrv worker minio
+  stop-builder              - Stop all services
+  stop-builder [SERVICE]    - Stop specific service
+                              Valid: api api-proxy cache datastore
+                                     jobsrv worker minio
+  psql                      - Open psql shell to builder DB
+  origin                    - Create core origin
+  origin [ORIGIN]           - Create specified origin
+  test-builder              - Run end-to-end API tests
+  sl                        - Tail the supervisor log
+  help                      - Print this list
+DOCS
+}
+
+install-packages
+
+# Forces the worker to use a bound docker socket
+DEV_MODE=true
+
+load_env_config
+
+trap local_cleanup EXIT
+
+welcome
