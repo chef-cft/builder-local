@@ -14,7 +14,8 @@ export HAB_DOCKER_OPTS="-m 2GB -p 80:80 -p 9000:9000"
 create github app
 download github app private key
 populate habitat-env
-# try with bitbucket
+
+* try with bitbucket
 
 ```
 hab studio enter
