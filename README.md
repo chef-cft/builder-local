@@ -32,3 +32,10 @@ hab pkg install -z YOURSAASBUILDERTOKEN core/redis
 
 hab pkg upload -u http://localhost -z YOURLOCALBUILDEROTKEN /hab/cache/artifacts/core-redis-4.0.14-20190319155852-x86_64-linux.hart
 ```
+
+## Habitat Plan as Core Sync Artifact
+
+Need to create a plan that has core (windows/linux) plans as the run deps to build and then upload to populate the builder-local.
+
+plan.sh - core pkgs for linux
+plan.ps2 - core pkgs for windows
