@@ -28,7 +28,7 @@ create personal origin
 create core origin
 
 ```
-hab pkg install -z _Qk9YLTEKYmxkci0yMDE3MDkyNzAyMzcxNApibGRyLTIwMTcwOTI3MDIzNzE0CjYrdk54RXdHcFJVQ0dMa2J4WEY5TS9VcWdZMVA5TW5PClVYUWdQdG5ZRVR5bEFMaFBIZVhzR3d4M0plR2EwUHJtd1plUER6ekFkckVYTkNuZQ== core/redis
+hab pkg install -z YOURSAASBUILDERTOKEN core/redis
 
-hab pkg upload -u http://localhost -z _Qk9YLTEKYmxkci0yMDE5MDcxODE4NDAyMgpibGRyLTIwMTkwNzE4MTg0MDIyCnBhSzliZW1LQXlDTGZ6bVI1WGc3QzVxRVl0S2k3VzlyCkJiWGtCSDRSTm05ZlBkclJYTEdxUlRldWlhdHNyKzdjOVA2b3NVNEtPeUxzZ1FCdw== /hab/cache/artifacts/core-redis-4.0.14-20190319155852-x86_64-linux.hart
+hab pkg upload -u http://localhost -z YOURLOCALBUILDEROTKEN /hab/cache/artifacts/core-redis-4.0.14-20190319155852-x86_64-linux.hart
 ```
