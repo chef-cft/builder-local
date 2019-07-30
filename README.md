@@ -11,7 +11,7 @@ git clone git@github.com:habitat-sh/builder.git
 cd builder
 export HAB_DOCKER_OPTS="-m 2GB -p 80:80 -p 9000:9000"
 ```
-create github app
+create github app https://github.com/habitat-sh/builder/blob/master/DEVELOPING.md#oauth-application-setup
 download github app private key
 populate habitat-env
 
