@@ -33,6 +33,8 @@ Packages can be seeded from the Builder SAAS to your local builder by installing
 
 Make sure you have your HAB_AUTH_TOKEN from your local builder.
 
+Example install and upload of a core package and it's dependency packages.
+
 ```
 HAB_AUTH_TOKEN=YOURLOCALBUILDEROTKEN origin
 
