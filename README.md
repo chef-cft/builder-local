@@ -1,43 +1,54 @@
 # builder-local
 
-Local deployment of the habitat-api for storing habitat packages.
-* local development
-* proof of concept
+Local deployment of the habitat builder-api for storing habitat packages.
 
-## Configuration, Setup and Usage
+
+## Configuration
+
+This local builder-api is run in a habitat studio and configured using a .studiorc and a .secrets dir that contains settings for the UI OAuth.
+
+## Setup
+
+Instructions on UI and OAuth setup can be found here in the DEVELOPING.md of the builder repo.
+
+[https://github.com/habitat-sh/builder/blob/master/DEVELOPING.md#repository-setup](https://github.com/habitat-sh/builder/blob/master/DEVELOPING.md#repository-setup)
+
+You will need your HAB_AUTH_TOKEN from the builder UI -> profile.
+
+## Usage
+
+To start builder-api locally
 
 ```
-git clone git@github.com:habitat-sh/builder.git
-cd builder
-export HAB_DOCKER_OPTS="-m 2GB -p 80:80 -p 9000:9000"
-```
-create github app https://github.com/habitat-sh/builder/blob/master/DEVELOPING.md#oauth-application-setup
-
-download github app private key
-
-populate habitat-env
-
-* try with bitbucket
-
-```
+export HAB_DOCKER_OPTS="-m 2GB -p 80:80"
 hab studio enter
 start-builder
 ```
 
-login
-generate HAB_AUTH_TOKEN
-create personal origin
-create core origin
+The builder-api will be running at [http://localhost](http://localhost)
+
+## Seed Builder
+
+Packages can be seeded from the Builder SAAS to your local builder by installing packages to your local workstation from the Builder SAAS and then uploading them to the local builder.
+
+Make sure you have your HAB_AUTH_TOKEN from your local builder.
 
 ```
-hab pkg install -z YOURSAASBUILDERTOKEN core/redis
+HAB_AUTH_TOKEN=YOURLOCALBUILDEROTKEN origin
+
+hab pkg install core/redis
+
+( cd /hab/cache/artifacts ; cat /hab/pkgs/core/redis/4.0.14/20190319155852/TDEPS | xargs -I % curl -O -J -L "https://bldr.habitat.sh/v1/depot/pkgs/%/download?target=x86_64-linux" )
 
 hab pkg upload -u http://localhost -z YOURLOCALBUILDEROTKEN /hab/cache/artifacts/core-redis-4.0.14-20190319155852-x86_64-linux.hart
 ```
 
 ## Habitat Plan as Core Sync Artifact
 
-Need to create a plan that has core (windows/linux) plans as the run deps to build and then upload to populate the builder-local.
+Users may want to keep an artifact of which packages are being sync'd from Builder SAAS to their local builder.
 
-plan.sh - core pkgs for linux
-plan.ps2 - core pkgs for windows
+1. Create a habitat plan to list core pkgs needed on the local builder.
+
+1. Build the core pkgs plan.
+
+1. Upload the core pkgs to the local builder.
