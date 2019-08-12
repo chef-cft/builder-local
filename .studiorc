@@ -148,11 +148,7 @@ _start-builder() {
     generate_bldr_keys
     upload_github_keys
 
-    echo "Builder Started: Navigate to http://localhost/#/pkgs/core to access the web UI."
-    echo "Minio login available at http://localhost:9000"
-    echo "Username: depot"
-    echo "Password: password"
-    echo "AWS-CLI ENVVARS have been set with these values"
+    echo "Builder Started: Navigate to http://localhost to access the web UI."
     return $?
   fi
 
