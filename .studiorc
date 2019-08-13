@@ -257,6 +257,14 @@ load_packages() {
   fi
 }
 
+# Potentially just upload everything from local cache
+# ( cd /hab/cache/artifacts ; ls /hab/cache/artifacts/core*.hart | xargs -I %  hab pkg upload -u http://localhost -z YOURLOCALBUILDEROTKEN== % )
+# sync_from_local_cache() {
+#   for pkg in /hab/cache/artifacts/core*.hart ; do
+#     load_package "${pkg}"
+#   done
+# }
+
 origin() {
   local origin=${1:-core}
   if curl --fail localhost/v1/depot/origins \

@@ -40,10 +40,14 @@ HAB_AUTH_TOKEN=YOURLOCALBUILDEROTKEN origin
 
 hab pkg install core/redis
 
-( cd /hab/cache/artifacts ; cat /hab/pkgs/core/redis/4.0.14/20190319155852/TDEPS | xargs -I % curl -O -J -L "https://bldr.habitat.sh/v1/depot/pkgs/%/download?target=x86_64-linux" )
+( cd /hab/cache/artifacts ; cat /hab/pkgs/core/redis/4.0.14/20190319155852/TDEPS | xargs -I % hab pkg install % )
 
 hab pkg upload -u http://localhost -z YOURLOCALBUILDEROTKEN /hab/cache/artifacts/core-redis-4.0.14-20190319155852-x86_64-linux.hart
 ```
+
+To sync everything in your local cache to the local Builder
+
+`( cd /hab/cache/artifacts ; ls /hab/cache/artifacts/core*.hart | xargs -I %  hab pkg upload -u http://localhost -z YOURLOCALBUILDEROTKEN % )`
 
 ## Habitat Plan as Core Sync Artifact
 
@@ -54,3 +58,11 @@ Users may want to keep an artifact of which packages are being sync'd from Build
 1. Build the core pkgs plan.
 
 1. Upload the core pkgs to the local builder.
+
+
+### Reset Testing
+
+```
+rm -rf ~/.hab
+hab origin key generate YOURORIGINNAME
+```
